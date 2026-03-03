@@ -1,5 +1,6 @@
 import type { RunOptions } from "@grammyjs/runner";
 import { CHANNEL_APPROVAL_NATIVE_RUNTIME_CONTEXT_CAPABILITY } from "openclaw/plugin-sdk/approval-handler-adapter-runtime";
+import type { PluginRuntime } from "openclaw/plugin-sdk/channel-core";
 import { registerChannelRuntimeContext } from "openclaw/plugin-sdk/channel-runtime-context";
 import { resolveAgentMaxConcurrent } from "openclaw/plugin-sdk/config-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
@@ -12,14 +13,30 @@ import { resolveTelegramAccount } from "./accounts.js";
 import { resolveTelegramAllowedUpdates } from "./allowed-updates.js";
 import { isTelegramExecApprovalHandlerConfigured } from "./exec-approvals.js";
 import { resolveTelegramTransport } from "./fetch.js";
-import type { MonitorTelegramOpts } from "./monitor.types.js";
 import {
   isRecoverableTelegramNetworkError,
   isTelegramPollingNetworkError,
 } from "./network-errors.js";
 import { makeProxyFetch } from "./proxy.js";
 
-export type { MonitorTelegramOpts } from "./monitor.types.js";
+export type MonitorTelegramOpts = {
+  token?: string;
+  accountId?: string;
+  config?: OpenClawConfig;
+  runtime?: RuntimeEnv;
+  channelRuntime?: PluginRuntime["channel"];
+  abortSignal?: AbortSignal;
+  useWebhook?: boolean;
+  webhookPath?: string;
+  webhookPort?: number;
+  webhookSecret?: string;
+  webhookHost?: string;
+  proxyFetch?: typeof fetch;
+  webhookUrl?: string;
+  webhookCertPath?: string;
+  /** When true, skip Telegram API webhook registration/deletion (external proxy mode). */
+  passive?: boolean;
+};
 
 export function createTelegramRunnerOptions(cfg: OpenClawConfig): RunOptions<unknown> {
   return {
@@ -140,7 +157,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
           abortSignal: opts.abortSignal,
         });
       }
-      await startTelegramWebhook({
+      const webhookResult = await startTelegramWebhook({
         token,
         accountId: account.accountId,
         config: cfg,
@@ -153,7 +170,13 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
         abortSignal: opts.abortSignal,
         publicUrl: opts.webhookUrl,
         webhookCertPath: opts.webhookCertPath,
+        passive: opts.passive,
       });
+      // In passive mode, return the result so the caller can mount the handler
+      // on a plugin HTTP route. The bot is already running and processing updates.
+      if (opts.passive) {
+        return webhookResult;
+      }
       await waitForAbortSignal(opts.abortSignal);
       return;
     }
