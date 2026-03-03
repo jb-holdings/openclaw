@@ -35,7 +35,13 @@ import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
 } from "openclaw/plugin-sdk/text-runtime";
-import { resolveTelegramAccount, type ResolvedTelegramAccount } from "./accounts.js";
+import { normalizePluginHttpPath } from "openclaw/plugin-sdk/webhook-ingress";
+import { registerPluginHttpRoute } from "openclaw/plugin-sdk/webhook-targets";
+import {
+  listTelegramAccountIds,
+  resolveTelegramAccount,
+  type ResolvedTelegramAccount,
+} from "./accounts.js";
 import { resolveTelegramAutoThreadId } from "./action-threading.js";
 import { lookupTelegramChatId } from "./api-fetch.js";
 import { telegramApprovalCapability } from "./approval-native.js";
@@ -921,12 +927,15 @@ export const telegramPlugin = createChatChannelPlugin({
           ctx.log?.error?.(`[${account.accountId}] ${unauthorizedTokenReason}`);
           throw new Error(unauthorizedTokenReason);
         }
-        ctx.log?.info(`[${account.accountId}] starting provider${telegramBotLabel}`);
+        const isPassive = account.config.webhookRegistration === "passive";
+        ctx.log?.info(
+          `[${account.accountId}] starting provider${telegramBotLabel}${isPassive ? " (passive webhook)" : ""}`,
+        );
         const setStatus = createAccountStatusSink({
           accountId: account.accountId,
           setStatus: ctx.setStatus,
         });
-        return resolveTelegramMonitor()({
+        const monitorResult = await resolveTelegramMonitor()({
           token,
           accountId: account.accountId,
           config: ctx.cfg,
@@ -941,7 +950,98 @@ export const telegramPlugin = createChatChannelPlugin({
           webhookPort: account.config.webhookPort,
           webhookCertPath: account.config.webhookCertPath,
           setStatus,
+          passive: isPassive,
         });
+
+        // In passive mode, mount the webhook handler as a plugin HTTP route
+        // so the external proxy can forward Telegram updates to the gateway.
+        if (isPassive && monitorResult?.handler) {
+          const webhookPath =
+            normalizePluginHttpPath(
+              account.config.webhookPath,
+              `/api/channels/telegram/${account.accountId}/webhook`,
+            ) ?? `/api/channels/telegram/${account.accountId}/webhook`;
+
+          const unregisterHttp = registerPluginHttpRoute({
+            path: webhookPath,
+            pluginId: "telegram",
+            accountId: account.accountId,
+            log: (msg) => ctx.log?.info(msg),
+            handler: async (req, res) => {
+              if (req.method !== "POST") {
+                res.writeHead(405, { Allow: "POST" });
+                res.end("Method Not Allowed");
+                return;
+              }
+
+              // Read JSON body from the request
+              const chunks: Buffer[] = [];
+              for await (const chunk of req) {
+                chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+              }
+              let body: unknown;
+              try {
+                body = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+              } catch {
+                res.writeHead(400);
+                res.end("Invalid JSON");
+                return;
+              }
+
+              const secretHeaderRaw = req.headers["x-telegram-bot-api-secret-token"];
+              const secretHeader = Array.isArray(secretHeaderRaw)
+                ? secretHeaderRaw[0]
+                : secretHeaderRaw;
+
+              let replied = false;
+              const reply = async (json: string) => {
+                if (replied) return;
+                replied = true;
+                res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+                res.end(json);
+              };
+              const unauthorized = async () => {
+                if (replied) return;
+                replied = true;
+                res.writeHead(401);
+                res.end("Unauthorized");
+              };
+
+              await monitorResult.handler?.(body, reply, secretHeader, unauthorized);
+              if (!replied) {
+                res.writeHead(200);
+                res.end("ok");
+              }
+            },
+          });
+
+          ctx.log?.info(
+            `[${account.accountId}] registered passive webhook route at ${webhookPath}`,
+          );
+
+          // Unregister the HTTP route on abort
+          ctx.abortSignal?.addEventListener(
+            "abort",
+            () => {
+              unregisterHttp();
+              ctx.log?.info(`[${account.accountId}] unregistered passive webhook route`);
+            },
+            { once: true },
+          );
+
+          // Wait for abort to keep the account alive
+          await new Promise<void>((resolve) => {
+            if (ctx.abortSignal?.aborted) {
+              resolve();
+              return;
+            }
+            ctx.abortSignal?.addEventListener("abort", () => resolve(), {
+              once: true,
+            });
+          });
+        }
+
+        return monitorResult as void;
       },
       logoutAccount: async ({ accountId, cfg }) => {
         const envToken = process.env.TELEGRAM_BOT_TOKEN?.trim() ?? "";

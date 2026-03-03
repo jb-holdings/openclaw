@@ -305,6 +305,12 @@ export const TelegramAccountSchemaBase = z
       .describe(
         "Path to the self-signed certificate (PEM) to upload to Telegram during webhook registration. Required for self-signed certs (direct IP or no domain).",
       ),
+    webhookRegistration: z
+      .enum(["active", "passive"])
+      .optional()
+      .describe(
+        'Webhook lifecycle management: "active" (default) registers/deletes webhook with Telegram API; "passive" skips API calls — an external proxy forwards raw updates to the gateway.',
+      ),
     actions: z
       .object({
         reactions: z.boolean().optional(),
