@@ -232,6 +232,21 @@ function resolveTelegramWebhookRateLimitKey(
   return `${path}:${resolveTelegramWebhookClientIp(req, config)}`;
 }
 
+export type TelegramWebhookHandler = (
+  body: unknown,
+  reply: (json: string) => Promise<void>,
+  secretHeader: string | undefined,
+  unauthorized: () => Promise<void>,
+) => Promise<void>;
+
+export type TelegramWebhookResult = {
+  server: ReturnType<typeof createServer> | null;
+  bot: ReturnType<typeof createTelegramBot>;
+  stop: () => void;
+  /** Exposed in passive mode for plugin HTTP route mounting. */
+  handler?: TelegramWebhookHandler;
+};
+
 export async function startTelegramWebhook(opts: {
   token: string;
   accountId?: string;
@@ -246,7 +261,9 @@ export async function startTelegramWebhook(opts: {
   healthPath?: string;
   publicUrl?: string;
   webhookCertPath?: string;
-}) {
+  /** When true, skip local HTTP server and Telegram API webhook registration/deletion. */
+  passive?: boolean;
+}): Promise<TelegramWebhookResult> {
   const path = opts.path ?? "/telegram-webhook";
   const healthPath = opts.healthPath ?? "/healthz";
   const port = opts.port ?? 8787;
@@ -282,6 +299,29 @@ export async function startTelegramWebhook(opts: {
     onTimeout: "return",
     timeoutMilliseconds: TELEGRAM_WEBHOOK_CALLBACK_TIMEOUT_MS,
   });
+
+  // In passive mode, the bot is ready to process updates via the exposed handler
+  // but we skip starting a local HTTP server and registering with Telegram API.
+  if (opts.passive) {
+    if (diagnosticsEnabled) {
+      startDiagnosticHeartbeat();
+    }
+    runtime.log?.(`[passive webhook] bot initialized, ready to receive forwarded updates`);
+    let shutDown = false;
+    const shutdown = () => {
+      if (shutDown) return;
+      shutDown = true;
+      // Do NOT call bot.api.deleteWebhook() — external proxy owns the webhook lifecycle.
+      void bot.stop();
+      if (diagnosticsEnabled) {
+        stopDiagnosticHeartbeat();
+      }
+    };
+    if (opts.abortSignal) {
+      opts.abortSignal.addEventListener("abort", shutdown, { once: true });
+    }
+    return { server: null, bot, stop: shutdown, handler };
+  }
 
   if (diagnosticsEnabled) {
     startDiagnosticHeartbeat(opts.config);

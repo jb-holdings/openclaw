@@ -168,6 +168,13 @@ export type TelegramAccountConfig = {
   webhookPort?: number;
   /** Path to the self-signed certificate (PEM) to upload to Telegram during webhook registration. */
   webhookCertPath?: string;
+  /**
+   * Controls webhook lifecycle management with Telegram API:
+   * - "active" (default): register/delete webhook with Telegram API normally
+   * - "passive": skip setWebhook/deleteWebhook — an external proxy manages the webhook
+   *   and forwards raw Telegram updates to a plugin HTTP route on the gateway
+   */
+  webhookRegistration?: "active" | "passive";
   /** Per-action tool gating (default: true for all). */
   actions?: TelegramActionConfig;
   /** Telegram thread/conversation binding overrides. */
