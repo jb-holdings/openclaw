@@ -394,7 +394,9 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   if (process.env.TELEGRAM_PROXY)                   tg.proxy = process.env.TELEGRAM_PROXY;
   if (process.env.TELEGRAM_WEBHOOK_URL)             tg.webhookUrl = process.env.TELEGRAM_WEBHOOK_URL;
   if (process.env.TELEGRAM_WEBHOOK_SECRET)          tg.webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (process.env.TELEGRAM_WEBHOOK_REGISTRATION)    tg.webhookRegistration = process.env.TELEGRAM_WEBHOOK_REGISTRATION;
   if (process.env.TELEGRAM_WEBHOOK_PATH)            tg.webhookPath = process.env.TELEGRAM_WEBHOOK_PATH;
+  if (process.env.TELEGRAM_API_ROOT)                tg.apiRoot = process.env.TELEGRAM_API_ROOT;
   if (process.env.TELEGRAM_MESSAGE_PREFIX)          tg.messagePrefix = process.env.TELEGRAM_MESSAGE_PREFIX;
 
   // booleans
