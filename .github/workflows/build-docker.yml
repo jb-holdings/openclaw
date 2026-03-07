@@ -95,12 +95,13 @@ jobs:
         id: tag
         run: |
           if [ -n "${{ inputs.tag }}" ]; then
-            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            TAG="${{ inputs.tag }}"
           elif [ -n "${{ inputs.upstream_version }}" ]; then
-            echo "value=${{ inputs.upstream_version }}" | sed 's/^v//' >> "$GITHUB_OUTPUT"
+            TAG=$(echo "${{ inputs.upstream_version }}" | sed 's/^v//')
           else
-            echo "value=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+            TAG="${{ github.run_number }}"
           fi
+          echo "value=${TAG}" >> "$GITHUB_OUTPUT"
 
       # Stage 1: Base image (compile source + runtime deps)
       - name: Build base image
