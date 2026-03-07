@@ -1,0 +1,128 @@
+name: Build Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_version:
+        description: "OpenClaw upstream tag (e.g. v2026.3.2). Leave empty to build clawify branch as-is."
+        required: false
+      tag:
+        description: "Image tag suffix (e.g. 2026.3.7). Defaults to upstream version or run number."
+        required: false
+      platforms:
+        description: "Target platforms"
+        required: false
+        default: "linux/arm64"
+      skip_base:
+        description: "Skip base image rebuild (use cached base image)"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Apply clawify patches on top of a specific upstream version
+      - name: Rebase patches on upstream ${{ inputs.upstream_version }}
+        if: ${{ inputs.upstream_version != '' }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "clawify-ci"
+          git config user.email "ci@clawify.dev"
+
+          # Add upstream remote and fetch tags
+          git remote add upstream https://github.com/openclaw/openclaw.git
+          git fetch upstream --tags
+
+          # Verify the tag exists
+          if ! git rev-parse "${{ inputs.upstream_version }}" >/dev/null 2>&1; then
+            echo "::error::Tag ${{ inputs.upstream_version }} not found in upstream."
+            echo "Available tags:"
+            git tag --sort=-v:refname | head -20
+            exit 1
+          fi
+
+          # Find custom commits (everything not in upstream)
+          MERGE_BASE=$(git merge-base HEAD upstream/main)
+          COMMITS=$(git log --reverse --format=%H "${MERGE_BASE}..HEAD")
+          COUNT=$(echo "$COMMITS" | wc -l | tr -d ' ')
+
+          echo "Found ${COUNT} custom commit(s) to apply on ${{ inputs.upstream_version }}"
+          echo "$COMMITS" | while read -r sha; do
+            echo "  - $(git log --oneline -1 "$sha")"
+          done
+
+          # Checkout upstream tag (detached HEAD)
+          git checkout "${{ inputs.upstream_version }}"
+
+          # Cherry-pick each custom commit
+          for sha in $COMMITS; do
+            MSG=$(git log --oneline -1 "$sha")
+            echo "Applying: ${MSG}"
+            if ! git cherry-pick "$sha" --no-edit; then
+              echo ""
+              echo "::error::Cherry-pick failed for: ${MSG}"
+              echo ""
+              echo "Patch conflicts with ${{ inputs.upstream_version }}."
+              echo "Fix locally:"
+              echo "  cd openclaw"
+              echo "  git fetch origin --tags"
+              echo "  git rebase --onto ${{ inputs.upstream_version }} \$(git merge-base clawify origin/main) clawify"
+              echo "  # resolve conflicts"
+              echo "  git push fork clawify --force-with-lease"
+              exit 1
+            fi
+          done
+
+          echo "All patches applied successfully on ${{ inputs.upstream_version }}"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Compute image tag: explicit > upstream version (without v prefix) > run number
+      - name: Compute image tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ inputs.upstream_version }}" ]; then
+            echo "value=${{ inputs.upstream_version }}" | sed 's/^v//' >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Stage 1: Base image (compile source + runtime deps)
+      - name: Build base image
+        if: ${{ !inputs.skip_base }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.base
+          platforms: ${{ inputs.platforms }}
+          push: true
+          tags: siajbholdings/clawify:openclaw-base
+
+      # Stage 2: Final image (nginx + entrypoint + configure.js)
+      - name: Build final image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.final
+          platforms: ${{ inputs.platforms }}
+          push: true
+          build-args: |
+            BASE_IMAGE=siajbholdings/clawify:openclaw-base
+          tags: |
+            siajbholdings/clawify:openclaw-custom
+            siajbholdings/clawify:openclaw-custom-${{ steps.tag.outputs.value }}
