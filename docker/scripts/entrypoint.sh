@@ -178,6 +178,28 @@ if [ -n "$HOOKS_PATH" ]; then
     }"
 fi
 
+# Build browser sidecar location block (only when BROWSER_ENABLED is set)
+BROWSER_LOCATION_BLOCK=""
+if [ -n "${BROWSER_ENABLED:-}" ]; then
+  BROWSER_LOCATION_BLOCK="# Browser sidecar proxy (VNC web UI)
+    location /browser/ {
+        ${AUTH_BLOCK}
+
+        proxy_pass http://browser:3000/;
+        proxy_set_header Host \\\$host;
+        proxy_set_header X-Real-IP \\\$remote_addr;
+        proxy_set_header X-Forwarded-For \\\$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \\\$scheme;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \\\$http_upgrade;
+        proxy_set_header Connection \\\$connection_upgrade;
+
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }"
+fi
+
 # ── Write startup page for 502/503/504 while gateway boots ───────────────────
 mkdir -p /usr/share/nginx/html
 cat > /usr/share/nginx/html/starting.html <<'STARTPAGE'
@@ -274,23 +296,7 @@ server {
         internal;
     }
 
-    # Browser sidecar proxy (VNC web UI)
-    location /browser/ {
-        ${AUTH_BLOCK}
-
-        proxy_pass http://browser:3000/;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection \$connection_upgrade;
-
-        proxy_read_timeout 86400s;
-        proxy_send_timeout 86400s;
-    }
+    ${BROWSER_LOCATION_BLOCK}
 }
 NGINXEOF
 
