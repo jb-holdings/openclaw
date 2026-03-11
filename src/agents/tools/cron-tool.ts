@@ -389,6 +389,15 @@ function inferDeliveryFromSessionKey(agentSessionKey?: string): CronDelivery | n
     (part) => part === "direct" || part === "dm" || part === "group" || part === "channel",
   );
   if (markerIndex === -1) {
+    // Legacy/proxy session keys may use <channel>:<peerId> without a
+    // direct/dm/group marker (e.g. "telegram:798367492").
+    // Treat remaining parts after the channel name as the peer ID.
+    if (parts.length >= 2) {
+      const peerId = parts.slice(1).join(":").trim();
+      if (peerId) {
+        return { mode: "announce", channel: head as CronMessageChannel, to: peerId };
+      }
+    }
     return null;
   }
   const peerId = parts
