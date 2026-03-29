@@ -103,6 +103,7 @@ export async function loadChannelConfigSurfaceModule(
     const result = spawnSync("bun", ["-e", script], {
       cwd: repoRoot,
       encoding: "utf8",
+      maxBuffer: 32 * 1024 * 1024,
       env: {
         ...process.env,
         OPENCLAW_CONFIG_SURFACE_MODULE: path.resolve(candidatePath),
@@ -200,6 +201,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     process.exit(3);
   }
 
-  process.stdout.write(JSON.stringify(resolved));
+  const serialized = JSON.stringify(resolved);
+  const outputPath = process.env.OPENCLAW_CONFIG_SURFACE_OUTPUT_FILE?.trim();
+  if (outputPath) {
+    fs.writeFileSync(outputPath, serialized, "utf8");
+  } else {
+    process.stdout.write(serialized);
+  }
   process.exit(0);
 }

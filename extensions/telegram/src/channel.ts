@@ -966,8 +966,12 @@ export const telegramPlugin = createChatChannelPlugin({
             path: webhookPath,
             pluginId: "telegram",
             accountId: account.accountId,
-            log: (msg) => ctx.log?.info(msg),
-            handler: async (req, res) => {
+            auth: "plugin",
+            log: (msg: string) => ctx.log?.info(msg),
+            handler: async (
+              req: import("node:http").IncomingMessage,
+              res: import("node:http").ServerResponse,
+            ) => {
               if (req.method !== "POST") {
                 res.writeHead(405, { Allow: "POST" });
                 res.end("Method Not Allowed");
