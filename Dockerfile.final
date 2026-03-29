@@ -1,4 +1,6 @@
-ARG BASE_IMAGE=ghcr.io/coollabsio/openclaw-base:latest
+# Default to the locally built Clawify base image so local test builds do not
+# silently fall back to an upstream runtime that misses Clawify patches.
+ARG BASE_IMAGE=clawify:openclaw-base
 
 FROM ${BASE_IMAGE}
 
