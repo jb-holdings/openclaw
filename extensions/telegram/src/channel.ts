@@ -936,17 +936,22 @@ export const telegramPlugin = createChatChannelPlugin({
         // In passive mode, mount the webhook handler as a plugin HTTP route
         // so the external proxy can forward Telegram updates to the gateway.
         if (isPassive && monitorResult?.handler) {
-          const webhookPath = normalizePluginHttpPath(
-            account.config.webhookPath,
-            `/api/channels/telegram/${account.accountId}/webhook`,
-          ) ?? `/api/channels/telegram/${account.accountId}/webhook`;
+          const webhookPath =
+            normalizePluginHttpPath(
+              account.config.webhookPath,
+              `/api/channels/telegram/${account.accountId}/webhook`,
+            ) ?? `/api/channels/telegram/${account.accountId}/webhook`;
 
           const unregisterHttp = registerPluginHttpRoute({
             path: webhookPath,
             pluginId: "telegram",
             accountId: account.accountId,
-            log: (msg) => ctx.log?.info(msg),
-            handler: async (req, res) => {
+            auth: "plugin",
+            log: (msg: string) => ctx.log?.info(msg),
+            handler: async (
+              req: import("node:http").IncomingMessage,
+              res: import("node:http").ServerResponse,
+            ) => {
               if (req.method !== "POST") {
                 res.writeHead(405, { Allow: "POST" });
                 res.end("Method Not Allowed");
@@ -1003,9 +1008,7 @@ export const telegramPlugin = createChatChannelPlugin({
             "abort",
             () => {
               unregisterHttp();
-              ctx.log?.info(
-                `[${account.accountId}] unregistered passive webhook route`,
-              );
+              ctx.log?.info(`[${account.accountId}] unregistered passive webhook route`);
             },
             { once: true },
           );
