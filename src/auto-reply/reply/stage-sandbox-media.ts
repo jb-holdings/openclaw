@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { assertSandboxPath } from "../../agents/sandbox-paths.js";
 import { ensureSandboxWorkspaceForSession } from "../../agents/sandbox.js";
 import { slugifySessionKey } from "../../agents/sandbox/shared.js";
+import { resolveEffectiveToolFsWorkspaceOnly } from "../../agents/tool-fs-policy.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
 import { copyFileWithinRoot, SafeOpenError } from "../../infra/fs-safe.js";
@@ -38,8 +39,9 @@ export async function stageSandboxMedia(params: {
   cfg: OpenClawConfig;
   sessionKey?: string;
   workspaceDir: string;
+  agentId?: string;
 }): Promise<StageSandboxMediaResult> {
-  const { ctx, sessionCtx, cfg, sessionKey, workspaceDir } = params;
+  const { ctx, sessionCtx, cfg, sessionKey, workspaceDir, agentId } = params;
   const hasPathsArray = Array.isArray(ctx.MediaPaths) && ctx.MediaPaths.length > 0;
   const rawPaths = resolveRawPaths(ctx);
   if (rawPaths.length === 0 || !sessionKey) {
@@ -56,7 +58,17 @@ export async function stageSandboxMedia(params: {
   const remoteMediaCacheDir = ctx.MediaRemoteHost
     ? path.join(CONFIG_DIR, "media", "remote-cache", slugifySessionKey(sessionKey))
     : null;
-  const effectiveWorkspaceDir = sandbox?.workspaceDir ?? remoteMediaCacheDir;
+  // When sandbox is off but a workspace dir is provided and workspaceOnly is enabled,
+  // stage media there so that workspaceOnly restrictions don't block native image
+  // injection and tool access. Skip for workspaceOnly: false — absolute paths work fine.
+  // Use per-agent resolution so agent-level workspaceOnly is respected too.
+  const effectiveWorkspaceOnly = resolveEffectiveToolFsWorkspaceOnly({ cfg, agentId });
+  const workspaceFallbackDir =
+    !sandbox && !remoteMediaCacheDir && workspaceDir && effectiveWorkspaceOnly
+      ? workspaceDir
+      : null;
+  const effectiveWorkspaceDir =
+    sandbox?.workspaceDir ?? remoteMediaCacheDir ?? workspaceFallbackDir;
   if (!effectiveWorkspaceDir) {
     return EMPTY_STAGE_RESULT;
   }
@@ -86,7 +98,8 @@ export async function stageSandboxMedia(params: {
     if (!fileName) {
       continue;
     }
-    const relativeDest = sandbox ? path.join("media", "inbound", fileName) : fileName;
+    const useSubdir = Boolean(sandbox) || Boolean(workspaceFallbackDir);
+    const relativeDest = useSubdir ? path.join("media", "inbound", fileName) : fileName;
     const dest = path.join(effectiveWorkspaceDir, relativeDest);
 
     try {
@@ -117,8 +130,9 @@ export async function stageSandboxMedia(params: {
       continue;
     }
 
-    // For sandbox use relative path, for remote cache use absolute path
-    const stagedPath = sandbox ? path.posix.join("media", "inbound", fileName) : dest;
+    // For sandbox or workspace fallback use relative path, for remote cache use absolute path
+    const stagedPath =
+      sandbox || workspaceFallbackDir ? path.posix.join("media", "inbound", fileName) : dest;
     staged.set(source, stagedPath);
   }
 

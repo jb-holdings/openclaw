@@ -629,6 +629,7 @@ export async function getReplyFromConfig(
       cfg,
       sessionKey,
       workspaceDir,
+      agentId,
     });
   }
 
