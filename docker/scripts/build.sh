@@ -29,7 +29,7 @@ build_base() {
 build_final() {
   echo "==> Building final image..."
   docker build \
-    -f Dockerfile \
+    -f Dockerfile.final \
     --build-arg "BASE_IMAGE=${BASE_TAG}" \
     -t "${FINAL_TAG}" \
     .
