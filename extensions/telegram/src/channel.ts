@@ -32,16 +32,13 @@ import {
   createComputedAccountStatusAdapter,
   createDefaultChannelRuntimeState,
 } from "openclaw/plugin-sdk/status-helpers";
+import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
 } from "openclaw/plugin-sdk/text-runtime";
 import { normalizePluginHttpPath } from "openclaw/plugin-sdk/webhook-ingress";
 import { registerPluginHttpRoute } from "openclaw/plugin-sdk/webhook-targets";
-import {
-  listTelegramAccountIds,
-  resolveTelegramAccount,
-  type ResolvedTelegramAccount,
-} from "./accounts.js";
+import { resolveTelegramAccount, type ResolvedTelegramAccount } from "./accounts.js";
 import { resolveTelegramAutoThreadId } from "./action-threading.js";
 import { lookupTelegramChatId } from "./api-fetch.js";
 import { telegramApprovalCapability } from "./approval-native.js";
@@ -979,13 +976,17 @@ export const telegramPlugin = createChatChannelPlugin({
 
               let replied = false;
               const reply = async (json: string) => {
-                if (replied) return;
+                if (replied) {
+                  return;
+                }
                 replied = true;
                 res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
                 res.end(json);
               };
               const unauthorized = async () => {
-                if (replied) return;
+                if (replied) {
+                  return;
+                }
                 replied = true;
                 res.writeHead(401);
                 res.end("Unauthorized");

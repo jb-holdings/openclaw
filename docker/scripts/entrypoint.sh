@@ -3,10 +3,12 @@ set -e
 
 STATE_DIR="${OPENCLAW_STATE_DIR:-/data/.openclaw}"
 WORKSPACE_DIR="${OPENCLAW_WORKSPACE_DIR:-/data/workspace}"
+CONFIG_FILE="${OPENCLAW_CONFIG_PATH:-$STATE_DIR/openclaw.json}"
 GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
 
 echo "[entrypoint] state dir: $STATE_DIR"
 echo "[entrypoint] workspace dir: $WORKSPACE_DIR"
+echo "[entrypoint] config file: $CONFIG_FILE"
 
 # ── Setup Persistent Storage for Tools ────────────────────────────────────────
 
@@ -101,6 +103,7 @@ chmod 700 "$STATE_DIR"
 # Export state/workspace dirs so openclaw CLI + configure.js see them
 export OPENCLAW_STATE_DIR="$STATE_DIR"
 export OPENCLAW_WORKSPACE_DIR="$WORKSPACE_DIR"
+export OPENCLAW_CONFIG_PATH="$CONFIG_FILE"
 
 # Set HOME so that ~/.openclaw resolves to $STATE_DIR directly.
 # This avoids "multiple state directories" warnings from openclaw doctor
@@ -120,21 +123,39 @@ if [ -n "$INIT_SCRIPT" ]; then
   fi
 fi
 
-# ── Configure openclaw from env vars ─────────────────────────────────────────
-echo "[entrypoint] running configure..."
+# ── Validate persisted OpenClaw config ───────────────────────────────────────
+echo "[entrypoint] validating persisted config..."
 node /app/scripts/configure.js
-chmod 600 "$STATE_DIR/openclaw.json"
+chmod 600 "$CONFIG_FILE"
 
-# ── Auto-fix doctor suggestions (e.g. enable configured channels) ─────────
-echo "[entrypoint] running openclaw doctor --fix..."
+GATEWAY_TOKEN="$(node -e "
+  const fs = require('fs');
+  const file = process.env.OPENCLAW_CONFIG_PATH;
+  const c = JSON.parse(fs.readFileSync(file, 'utf8'));
+  process.stdout.write(c?.gateway?.auth?.token || '');
+")"
+if [ -z "$GATEWAY_TOKEN" ]; then
+  echo "[entrypoint] ERROR: gateway.auth.token missing from $CONFIG_FILE"
+  exit 1
+fi
+
+GATEWAY_PORT="$(node -e "
+  const fs = require('fs');
+  const file = process.env.OPENCLAW_CONFIG_PATH;
+  const c = JSON.parse(fs.readFileSync(file, 'utf8'));
+  process.stdout.write(String(c?.gateway?.port || process.env.OPENCLAW_GATEWAY_PORT || 18789));
+")"
+
+# ── Non-mutating doctor check ────────────────────────────────────────────────
+echo "[entrypoint] running openclaw doctor..."
 cd /opt/openclaw/app
-openclaw doctor --fix 2>&1 || true
+openclaw doctor 2>&1 || true
 
-# ── Read hooks path from generated config (if hooks enabled) ─────────────────
+# ── Read hooks path from persisted config (if hooks enabled) ─────────────────
 HOOKS_PATH=""
 HOOKS_PATH=$(node -e "
   try {
-    const c = JSON.parse(require('fs').readFileSync('$STATE_DIR/openclaw.json','utf8'));
+    const c = JSON.parse(require('fs').readFileSync(process.env.OPENCLAW_CONFIG_PATH,'utf8'));
     if (c.hooks && c.hooks.enabled) process.stdout.write(c.hooks.path || '/hooks');
   } catch {}
 " 2>/dev/null || true)
