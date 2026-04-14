@@ -27,7 +27,7 @@ RUN pnpm config:schema:gen
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN pnpm build
 ENV OPENCLAW_PREFER_PNPM=1
-RUN pnpm ui:install && pnpm ui:build
+RUN pnpm ui:install && cd ui && pnpm exec vite build
 
 
 # Runtime image
