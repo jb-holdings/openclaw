@@ -22,21 +22,12 @@ WORKDIR /openclaw
 # This allows building from a fork with custom changes.
 COPY . .
 
-# Patch: relax version requirements for packages using workspace protocol.
-RUN set -eux; \
-  find ./extensions -name 'package.json' -type f | while read -r f; do \
-    sed -i -E 's/"openclaw"[[:space:]]*:[[:space:]]*">=[^"]+"/"openclaw": "*"/g' "$f"; \
-    sed -i -E 's/"openclaw"[[:space:]]*:[[:space:]]*"workspace:[^"]+"/"openclaw": "*"/g' "$f"; \
-  done
-
-# Disable minimumReleaseAge — upstream lockfile may reference packages published
-# within the 48h window. This guard is for local dev, not Docker builds.
-RUN sed -i 's/^minimumReleaseAge:.*/minimumReleaseAge: 0/' pnpm-workspace.yaml && pnpm install --no-frozen-lockfile
+RUN pnpm install --frozen-lockfile
 RUN pnpm config:schema:gen
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN pnpm build
 ENV OPENCLAW_PREFER_PNPM=1
-RUN pnpm ui:install && cd ui && pnpm exec vite build
+RUN pnpm ui:install && pnpm ui:build
 
 
 # Runtime image
