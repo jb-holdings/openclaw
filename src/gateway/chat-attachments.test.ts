@@ -76,7 +76,7 @@ describe("parseMessageWithAttachments", () => {
     expect(logs).toHaveLength(0);
   });
 
-  it("drops non-image payloads and logs", async () => {
+  it("collects non-image payloads as files and logs", async () => {
     const pdf = Buffer.from("%PDF-1.4\n").toString("base64");
     const { parsed, logs } = await parseWithWarnings("x", [
       {
@@ -87,6 +87,9 @@ describe("parseMessageWithAttachments", () => {
       },
     ]);
     expect(parsed.images).toHaveLength(0);
+    expect(parsed.files).toHaveLength(1);
+    expect(parsed.files[0]?.mimeType).toBe("application/pdf");
+    expect(parsed.files[0]?.fileName).toBe("not-image.pdf");
     expect(logs).toHaveLength(1);
     expect(logs[0]).toMatch(/non-image/i);
   });
@@ -106,17 +109,38 @@ describe("parseMessageWithAttachments", () => {
     expect(logs[0]).toMatch(/mime mismatch/i);
   });
 
-  it("drops unknown mime when sniff fails and logs", async () => {
+  it("collects unknown mime as file when sniff fails and logs", async () => {
     const unknown = Buffer.from("not an image").toString("base64");
     const { parsed, logs } = await parseWithWarnings("x", [
       { type: "file", fileName: "unknown.bin", content: unknown },
     ]);
     expect(parsed.images).toHaveLength(0);
+    expect(parsed.files).toHaveLength(1);
+    expect(parsed.files[0]?.mimeType).toBe("application/octet-stream");
+    expect(parsed.files[0]?.fileName).toBe("unknown.bin");
     expect(logs).toHaveLength(1);
-    expect(logs[0]).toMatch(/unable to detect image mime type/i);
+    expect(logs[0]).toMatch(/collecting as file/i);
   });
 
-  it("keeps valid images and drops invalid ones", async () => {
+  it("collects CSV attachment as file", async () => {
+    const csv = Buffer.from("Name,Value\nfoo,1\nbar,2").toString("base64");
+    const { parsed, logs } = await parseWithWarnings("analyze this", [
+      {
+        type: "file",
+        mimeType: "text/csv",
+        fileName: "data.csv",
+        content: csv,
+      },
+    ]);
+    expect(parsed.images).toHaveLength(0);
+    expect(parsed.files).toHaveLength(1);
+    expect(parsed.files[0]?.fileName).toBe("data.csv");
+    expect(parsed.files[0]?.type).toBe("file");
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatch(/collecting as file/i);
+  });
+
+  it("keeps valid images and collects non-images as files", async () => {
     const pdf = Buffer.from("%PDF-1.4\n").toString("base64");
     const { parsed, logs } = await parseWithWarnings("x", [
       {
@@ -135,6 +159,8 @@ describe("parseMessageWithAttachments", () => {
     expect(parsed.images).toHaveLength(1);
     expect(parsed.images[0]?.mimeType).toBe("image/png");
     expect(parsed.images[0]?.data).toBe(PNG_1x1);
+    expect(parsed.files).toHaveLength(1);
+    expect(parsed.files[0]?.mimeType).toBe("application/pdf");
     expect(logs.some((l) => /non-image/i.test(l))).toBe(true);
   });
 });

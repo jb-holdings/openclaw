@@ -21,6 +21,13 @@ export type ChatImageContent = {
   mimeType: string;
 };
 
+export type ChatFileContent = {
+  type: "file";
+  data: string;
+  mimeType: string;
+  fileName?: string;
+};
+
 /**
  * Metadata for an attachment that was offloaded to the media store.
  *
@@ -47,6 +54,8 @@ export type ParsedMessageWithImages = {
   message: string;
   /** Small attachments (≤ OFFLOAD_THRESHOLD_BYTES) passed inline to the model */
   images: ChatImageContent[];
+  /** Non-image file attachments (CSV, PDF, text, etc.) collected for persistence */
+  files: ChatFileContent[];
   /** Original accepted attachment order after inline/offloaded split. */
   imageOrder: PromptImageOrderEntry[];
   /**
@@ -301,7 +310,7 @@ export async function parseMessageWithAttachments(
   const log = opts?.log;
 
   if (!attachments || attachments.length === 0) {
-    return { message, images: [], imageOrder: [], offloadedRefs: [] };
+    return { message, images: [], files: [], imageOrder: [], offloadedRefs: [] };
   }
 
   // For text-only models drop all attachments cleanly. Do not save files or
@@ -313,10 +322,11 @@ export async function parseMessageWithAttachments(
         `parseMessageWithAttachments: ${attachments.length} attachment(s) dropped — model does not support images`,
       );
     }
-    return { message, images: [], imageOrder: [], offloadedRefs: [] };
+    return { message, images: [], files: [], imageOrder: [], offloadedRefs: [] };
   }
 
   const images: ChatImageContent[] = [];
+  const files: ChatFileContent[] = [];
   const imageOrder: PromptImageOrderEntry[] = [];
   const offloadedRefs: OffloadedRef[] = [];
   let updatedMessage = message;
@@ -358,11 +368,23 @@ export async function parseMessageWithAttachments(
       const sniffedMime = normalizeMime(await sniffMimeFromBase64(b64));
 
       if (sniffedMime && !isImageMime(sniffedMime)) {
-        log?.warn(`attachment ${label}: detected non-image (${sniffedMime}), dropping`);
+        log?.warn(`attachment ${label}: detected non-image (${sniffedMime}), collecting as file`);
+        files.push({
+          type: "file",
+          data: b64,
+          mimeType: sniffedMime,
+          fileName: att.fileName,
+        });
         continue;
       }
       if (!sniffedMime && !isImageMime(providedMime)) {
-        log?.warn(`attachment ${label}: unable to detect image mime type, dropping`);
+        log?.warn(`attachment ${label}: unable to detect image mime type, collecting as file`);
+        files.push({
+          type: "file",
+          data: b64,
+          mimeType: providedMime ?? "application/octet-stream",
+          fileName: att.fileName,
+        });
         continue;
       }
       if (sniffedMime && providedMime && sniffedMime !== providedMime) {
@@ -459,6 +481,7 @@ export async function parseMessageWithAttachments(
   return {
     message: updatedMessage !== message ? updatedMessage.trimEnd() : message,
     images,
+    files,
     imageOrder,
     offloadedRefs,
   };
