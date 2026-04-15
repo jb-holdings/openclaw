@@ -52,6 +52,7 @@ import {
   registerChatAbortController,
 } from "../chat-abort.js";
 import {
+  type ChatFileContent,
   type ChatImageContent,
   type OffloadedRef,
   parseMessageWithAttachments,
@@ -733,6 +734,35 @@ async function persistChatSendImages(params: {
     const offloaded = offloadedSaved[offloadedIndex];
     if (offloaded) {
       saved.push(offloaded);
+    }
+  }
+  return saved;
+}
+
+async function persistChatSendFiles(params: {
+  files: ChatFileContent[];
+  client: GatewayRequestHandlerOptions["client"];
+  logGateway: GatewayRequestContext["logGateway"];
+}): Promise<SavedMedia[]> {
+  if (params.files.length === 0 || isAcpBridgeClient(params.client)) {
+    return [];
+  }
+  const saved: SavedMedia[] = [];
+  for (const file of params.files) {
+    try {
+      saved.push(
+        await saveMediaBuffer(
+          Buffer.from(file.data, "base64"),
+          file.mimeType,
+          "inbound",
+          undefined,
+          file.fileName,
+        ),
+      );
+    } catch (err) {
+      params.logGateway.warn(
+        `chat.send: failed to persist inbound file (${file.mimeType}): ${formatForLog(err)}`,
+      );
     }
   }
   return saved;
@@ -2140,6 +2170,7 @@ export const chatHandlers: GatewayRequestHandlers = {
     });
     let parsedMessage = inboundMessage;
     let parsedImages: ChatImageContent[] = [];
+    let parsedFiles: ChatFileContent[] = [];
     let imageOrder: PromptImageOrderEntry[] = [];
     let offloadedRefs: OffloadedRef[] = [];
     const timeoutMs = resolveAgentTimeoutMs({
@@ -2222,6 +2253,7 @@ export const chatHandlers: GatewayRequestHandlers = {
         });
         parsedMessage = parsed.message;
         parsedImages = parsed.images;
+        parsedFiles = parsed.files;
         imageOrder = parsed.imageOrder;
         offloadedRefs = parsed.offloadedRefs;
       } catch (err) {
@@ -2269,6 +2301,11 @@ export const chatHandlers: GatewayRequestHandlers = {
         explicitOriginTargetsPlugin && parsedImages.length > 0
           ? resolveChatSendTranscriptMediaFields(await persistedImagesPromise)
           : {};
+      const persistedFilesPromise = persistChatSendFiles({
+        files: parsedFiles,
+        client,
+        logGateway: context.logGateway,
+      });
 
       const trimmedMessage = parsedMessage.trim();
       const injectThinking = Boolean(
@@ -2299,6 +2336,12 @@ export const chatHandlers: GatewayRequestHandlers = {
       // See: https://github.com/moltbot/moltbot/issues/3658
       const stampedMessage = injectTimestamp(messageForAgent, timestampOptsFromConfig(cfg));
 
+      // Await file persistence so MediaPaths/MediaTypes are available for
+      // buildInboundMediaNote in the agent prompt.
+      const persistedFiles = await persistedFilesPromise;
+      const fileMediaFields =
+        persistedFiles.length > 0 ? resolveChatSendTranscriptMediaFields(persistedFiles) : {};
+
       const ctx: MsgContext = {
         Body: messageForAgent,
         BodyForAgent: stampedMessage,
@@ -2322,6 +2365,7 @@ export const chatHandlers: GatewayRequestHandlers = {
         SenderUsername: clientInfo?.displayName,
         GatewayClientScopes: client?.connect?.scopes ?? [],
         ...pluginBoundMediaFields,
+        ...fileMediaFields,
       };
 
       const { onModelSelected, ...replyPipeline } = createChannelReplyPipeline({
@@ -2353,12 +2397,13 @@ export const chatHandlers: GatewayRequestHandlers = {
             return;
           }
           const persistedImages = await persistedImagesPromise;
+          const allSavedMedia = [...persistedImages, ...persistedFiles];
           emitSessionTranscriptUpdate({
             sessionFile: transcriptPath,
             sessionKey,
             message: buildChatSendTranscriptMessage({
               message: parsedMessage,
-              savedImages: persistedImages,
+              savedImages: allSavedMedia,
               timestamp: now,
             }),
           });
@@ -2385,11 +2430,12 @@ export const chatHandlers: GatewayRequestHandlers = {
           return;
         }
         transcriptMediaRewriteDone = true;
+        const allSavedMediaForRewrite = [...(await persistedImagesPromise), ...persistedFiles];
         await rewriteChatSendUserTurnMediaPaths({
           transcriptPath,
           sessionKey,
           message: parsedMessage,
-          savedImages: await persistedImagesPromise,
+          savedImages: allSavedMediaForRewrite,
         });
       };
       const appendWebchatAgentMediaTranscriptIfNeeded = async (payload: ReplyPayload) => {
