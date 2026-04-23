@@ -336,6 +336,9 @@ type StartWebhookOptions = Omit<
 type StartedWebhook = Awaited<ReturnType<typeof startTelegramWebhook>>;
 
 function getServerPort(server: StartedWebhook["server"]): number {
+  if (!server) {
+    throw new Error("no server");
+  }
   const address = server.address();
   if (!address || typeof address === "string") {
     throw new Error("no addr");
