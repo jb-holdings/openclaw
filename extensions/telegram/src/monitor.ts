@@ -1,6 +1,9 @@
 import type { RunOptions } from "@grammyjs/runner";
 import { CHANNEL_APPROVAL_NATIVE_RUNTIME_CONTEXT_CAPABILITY } from "openclaw/plugin-sdk/approval-handler-adapter-runtime";
-import type { PluginRuntime } from "openclaw/plugin-sdk/channel-core";
+import type {
+  ChannelAccountSnapshot,
+  ChannelRuntimeSurface,
+} from "openclaw/plugin-sdk/channel-contract";
 import { registerChannelRuntimeContext } from "openclaw/plugin-sdk/channel-runtime-context";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-types";
 import { resolveAgentMaxConcurrent } from "openclaw/plugin-sdk/model-session-runtime";
@@ -28,7 +31,7 @@ export type MonitorTelegramOpts = {
   accountId?: string;
   config?: OpenClawConfig;
   runtime?: RuntimeEnv;
-  channelRuntime?: PluginRuntime["channel"];
+  channelRuntime?: ChannelRuntimeSurface;
   abortSignal?: AbortSignal;
   useWebhook?: boolean;
   webhookPath?: string;
@@ -40,6 +43,7 @@ export type MonitorTelegramOpts = {
   webhookCertPath?: string;
   /** When true, skip Telegram API webhook registration/deletion (external proxy mode). */
   passive?: boolean;
+  setStatus?: (patch: Omit<ChannelAccountSnapshot, "accountId">) => void;
 };
 
 export function createTelegramRunnerOptions(cfg: OpenClawConfig): RunOptions<unknown> {
@@ -189,7 +193,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
         return webhookResult;
       }
       await waitForAbortSignal(opts.abortSignal);
-      return;
+      return undefined;
     }
 
     const { TelegramPollingSession, readTelegramUpdateOffset, writeTelegramUpdateOffset } =
@@ -282,6 +286,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
         setStatus: opts.setStatus,
       });
       await pollingSession.runUntilAbort();
+      return undefined;
     } finally {
       pollingLease.release();
     }
