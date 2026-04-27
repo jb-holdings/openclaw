@@ -22,6 +22,13 @@ WORKDIR /openclaw
 # This allows building from a fork with custom changes.
 COPY . .
 
+# Eager-install bundled extension runtime deps (openai, telegram, slack, etc.)
+# at build time. Without this flag, OpenClaw 4.24+ defers the install to
+# `openclaw doctor` at first activation — and since /opt/openclaw is not on
+# a persistent volume, every cold start re-runs `npm install pi-ai ws ...`
+# (~30-60s of dead-air boot). See scripts/postinstall-bundled-plugins.mjs.
+ENV OPENCLAW_EAGER_BUNDLED_PLUGIN_DEPS=1
+
 RUN pnpm install --frozen-lockfile
 RUN pnpm config:schema:gen
 ENV NODE_OPTIONS="--max-old-space-size=4096"
