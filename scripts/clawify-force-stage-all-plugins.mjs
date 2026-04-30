@@ -19,8 +19,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
-// Plugins to skip — their deps fail strict version pinning at build time.
+// Plugins to skip — either fail strict version pinning at build time OR not used by clawify.
+// Clawify uses: openai, anthropic, xai, google, codex, telegram, browser, memory-core, memory-wiki,
+// deepgram, elevenlabs, firecrawl, tavily, document-extract.
 const PLUGINS_TO_SKIP = new Set([
+  // Strict-pin failures.
   "msteams", // jwks-rsa: ^4.0.1
   "matrix", // multiple semver specs
   "whatsapp", // baileys peer deps
@@ -29,6 +32,38 @@ const PLUGINS_TO_SKIP = new Set([
   "slack",
   "qqbot",
   "nostr",
+  // Channels not used by clawify.
+  "line",
+  "mattermost",
+  "tlon",
+  "twitch",
+  "zalo",
+  "zalouser",
+  "nextcloud-talk",
+  "synology-chat",
+  "google-meet",
+  "github-copilot",
+  // Providers not used by clawify.
+  "kimi-coding",
+  "lmstudio",
+  "fireworks",
+  "ollama",
+  "mistral",
+  "microsoft",
+  // Misc not used by clawify.
+  "brave",
+  "lobster",
+  "openshell",
+  "llm-task",
+  "skill-workshop",
+  "migrate-hermes",
+  "web-readability",
+  "voice-call",
+  "memory-lancedb", // heavy vector DB binary
+  "diagnostics-otel",
+  "qa-channel",
+  "qa-lab",
+  "qa-matrix",
 ]);
 
 const dir = path.join(process.cwd(), "extensions");
