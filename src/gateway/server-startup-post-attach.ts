@@ -289,9 +289,14 @@ export async function startGatewaySidecars(params: {
   await measureStartup(params.startupTrace, "sidecars.channels", async () => {
     if (!skipChannels) {
       try {
-        await prewarmConfiguredPrimaryModel({
+        // Clawify patch: prewarm in background so gateway is usable while
+        // provider runtime deps install. First message may be slow but boot
+        // does not block on the npm install dead-air.
+        void prewarmConfiguredPrimaryModel({
           cfg: params.cfg,
           log: params.log,
+        }).catch((err) => {
+          params.log.warn(`startup model warmup failed: ${String(err)}`);
         });
         await params.startChannels();
       } catch (err) {
