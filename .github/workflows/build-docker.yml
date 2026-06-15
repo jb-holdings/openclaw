@@ -12,7 +12,7 @@ on:
       platforms:
         description: "Target platforms"
         required: false
-        default: "linux/arm64"
+        default: "linux/amd64"
       skip_base:
         description: "Skip base image rebuild (use cached base image)"
         required: false
